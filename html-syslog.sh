@@ -5,7 +5,7 @@ if [ -L "/www/user" ]; then
   sed -i '1s/^/<pre>/' $LogFile
   ln -s $LogFile /www/user/log.html
   grep -q "router.asus.com" /etc/hosts && router="router.asus.com" || router=$(nvram get lan_ipaddr)
-  echo "You can now access syslog from http://${router}/user/log.html"
+  echo "You can now access $(basename $DEFAULT_LOG) from http://${router}/user/log.html"
 else
   echo "This script is not for you, sorry :("
 fi
