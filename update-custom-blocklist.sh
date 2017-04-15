@@ -1,4 +1,6 @@
 #!/bin/sh
+#Author: redhat27
+#snbforums thread: https://www.snbforums.com/threads/know-your-attackers-and-dynamically-block-intruders.38585/
 
 NaughtyIPTempFile="/tmp/naughty.$$"
 NaughtyIPSaveFile="/tmp/naughty.save"
