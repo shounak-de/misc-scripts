@@ -50,7 +50,7 @@ $GREP -oP "(?<=${ShadowAuth})[^ ]+" ${LogFile} >> ${NaughtyIPTempFile} && CauseL
 
 AcceptMatchPattern="ACCEPT IN=eth0 OUT= MAC=xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx <1>SRC=" # Change this line to copy your routers MAC
 #LivePorts="20 21 22 25 110"
-LivePorts="22"
+LivePorts="22 8388"
 for port in $LivePorts; do
   grepPorts="$grepPorts-e DPT=$port "
 done
