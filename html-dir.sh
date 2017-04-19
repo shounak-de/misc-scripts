@@ -28,13 +28,13 @@ else
 fi
 
 OUT="$root/$(basename $1).html"
-echo -e "<!DOCTYPE html>\n<head>\n\t<title>Listing of ${1}</title>\n</head>\n<body style=\"background-color:rgba(240,248,255,0.7); font-family:'Lucida Console', Monaco, monospace;\">\n${Complain}<br><h1>Listing of $1 on router</h1><br>\n<ul>" > $OUT
+echo -e "<!DOCTYPE html>\n<head>\n\t<title>Listing of ${1}</title>\n</head>\n<body style=\"background-color:rgba(240,208,255,0.7); font-family:'Lucida Console', Monaco, monospace;\">\n${Complain}<br><h1>Listing of $1 on router</h1>\n<ul>" > $OUT
 find "$1" -type d | sort | while read dir; do
-  echo -e "  <li><b>$dir</b></li>\n  <ul>" >> $OUT
+  echo -e "\t<br>\n\t<li><b>$dir</b></li>\n\t<ul>" >> $OUT
     find "$dir" -maxdepth 1 -type f | sort | while read filepath; do
-    [ -z "$Complain" ] && echo "    <li><a href=\"${filepath:1}\">$(basename "$filepath")</a></li>" >> $OUT || echo "    <li>$(basename "$filepath")</li>" >> $OUT
+    [ -z "$Complain" ] && echo -e "\t\t<li><a href=\"${filepath:1}\">$(basename "$filepath")</a></li>" >> $OUT || echo -e "\t\t<li>$(basename "$filepath")</li>" >> $OUT
   done
-  echo "  </ul>" >> $OUT
+  echo -e "\t</ul>" >> $OUT
 done
 echo -en "</ul>\n</body>" >> $OUT
 grep -q "router.asus.com" /etc/hosts && router="router.asus.com" || router=$(nvram get lan_ipaddr)
