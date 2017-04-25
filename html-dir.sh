@@ -4,7 +4,7 @@
 
 [ -z "$1" ] && echo "$0: Specify a directory on the router you want to expose!" && exit 1
 [ ! -d "$1" ] && echo "$0: Cannot find the directory $1 on this router!" && exit 2
-ps_line=$(ps | grep [l]ighttpd)
+ps_line=$(ps | grep "[l]ighttpd ")
 if [ -n "$ps_line" ]; then
   root=$(sed -n 's/"//g;/document-root/s/^.*= //p' ${ps_line##* })
   port=$(sed -n 's/"//g;/port/s/^.*= //p' ${ps_line##* })
