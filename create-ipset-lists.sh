@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh 
 # snbforums thread:
 # https://www.snbforums.com/threads/country-blocking-script.36732/page-2#post-311407
 
@@ -25,14 +25,14 @@ IPSET_LISTS_DIR=/jffs/ipset_lists
 # Different routers got different iptables and ipset syntax
 case $(ipset -v | grep -o "v[4,6]") in
   v6)
-    MATCH_SET='--match-set'; CREATE='create'; ADD='add'; SWAP='swap'; IPHASH='hash:ip'; NETHASH='hash:net family inet'; NETHASH6='hash:net family inet6'; SETNOTFOUND='name does not exist'
+    MATCH_SET='--match-set'; CREATE='create'; ADD='add'; SWAP='swap'; TEST='test'; DELETE='del'; FLUSH='flush'; IPHASH='hash:ip'; NETHASH='hash:net family inet'; NETHASH6='hash:net family inet6'; SETNOTFOUND='name does not exist'
     # Loading ipset modules
     lsmod | grep -q "xt_set" || \
     for module in ip_set ip_set_hash_net ip_set_hash_ip xt_set; do
       modprobe $module
     done;;
   v4)
-    MATCH_SET='--set'; CREATE='--create'; ADD='--add'; SWAP='--swap'; IPHASH='iphash'; NETHASH='nethash'; SETNOTFOUND='Unknown set'
+    MATCH_SET='--set'; CREATE='--create'; ADD='--add'; SWAP='--swap'; TEST='--test'; DELETE='--del'; FLUSH='--flush'; IPHASH='iphash'; NETHASH='nethash'; SETNOTFOUND='Unknown set'
     # Loading ipset modules
     lsmod | grep -q "ipt_set" || \
     for module in ip_set ip_set_nethash ip_set_iphash ipt_set; do
@@ -49,41 +49,71 @@ while ! ping -q -c 1 google.com &>/dev/null; do
   WaitSeconds=$((WaitSeconds+1))
   [ $WaitSeconds -gt 300 ] && logger -t Firewall "$0: Warning: Router not online! Aborting after a wait of 5 minutes..." && exit 1
 done
-
 # Block traffic from Tor nodes [IPv4 nodes only]
+if [ ! -s "$IPSET_LISTS_DIR/tor.lst" -o -n "$(find $IPSET_LISTS_DIR/tor.lst -mtime +$BLOCKLISTS_SAVE_DAYS -print 2>/dev/null)" ]; then
+  $(ipset -q $SWAP BlockedCountries BlockedCountries) && ipset $DELETE BlockedCountries 194.63.140.0/22 2>/dev/null
+  wget -q -O $IPSET_LISTS_DIR/tor.lst "http://torstatus.blutmagie.de/ip_list_all.php/Tor_ip_list_ALL.csv"
+  touch $IPSET_LISTS_DIR/tor.lst
+  Action="Add"
+  $(ipset -q $SWAP TorNodes TorNodes) && ipset $FLUSH TorNodes && Action="Reload"
+fi
 if $(ipset $SWAP TorNodes TorNodes 2>&1 | grep -q "$SETNOTFOUND"); then
   ipset $CREATE TorNodes $IPHASH
-  [ $? -eq 0 ] && entryCount=0
-  [ ! -e "$IPSET_LISTS_DIR/tor.lst" -o -n "$(find $IPSET_LISTS_DIR/tor.lst -mtime +$BLOCKLISTS_SAVE_DAYS -print 2>/dev/null)" ] && wget -q -O $IPSET_LISTS_DIR/tor.lst http://torstatus.blutmagie.de/ip_list_all.php/Tor_ip_list_ALL.csv
+  Action="Add"
+fi
+if [ -n "${Action}" ]; then
+  entryCount=0
   for IP in $(cat $IPSET_LISTS_DIR/tor.lst); do
     ipset $ADD TorNodes $IP
     [ $? -eq 0 ] && entryCount=$((entryCount+1))
   done
-  logger -t Firewall "$0: Added TorNodes list ($entryCount entries)"
+  logger -t Firewall "$0: ${Action}ed TorNodes list ($entryCount entries)"
+  unset Action
 fi
 iptables-save | grep -q TorNodes || iptables -I INPUT -m set $MATCH_SET TorNodes src -j $IPTABLES_RULE_TARGET
 
 # Country blocking by nethashes [Both IPv4 and IPv6 sources]
+for country in ${BLOCKED_COUNTRY_LIST}; do
+  if [ ! -e "$IPSET_LISTS_DIR/$country.lst" -o -n "$(find $IPSET_LISTS_DIR/$country.lst -mtime +$BLOCKLISTS_SAVE_DAYS -print 2>/dev/null)" ]; then
+    wget -q -O $IPSET_LISTS_DIR/$country.lst "http://www.ipdeny.com/ipblocks/data/aggregated/${country}-aggregated.zone"
+    touch $IPSET_LISTS_DIR/$country.lst
+    Action="Reload"
+  fi
+  [ "${Action}" == "Reload" ] && $(ipset -q $SWAP BlockedCountries BlockedCountries) && ipset $FLUSH BlockedCountries
+done
 if $(ipset $SWAP BlockedCountries BlockedCountries 2>&1 | grep -q "$SETNOTFOUND"); then
   ipset $CREATE BlockedCountries $NETHASH
-  for country in ${BLOCKED_COUNTRY_LIST}; do
+  Action="Add"
+fi
+for country in ${BLOCKED_COUNTRY_LIST}; do
+  if [ -n "${Action}" ]; then
     entryCount=0
-    [ ! -e "$IPSET_LISTS_DIR/$country.lst" -o -n "$(find $IPSET_LISTS_DIR/$country.lst -mtime +$BLOCKLISTS_SAVE_DAYS -print 2>/dev/null)" ] && wget -q -O $IPSET_LISTS_DIR/$country.lst http://www.ipdeny.com/ipblocks/data/aggregated/$country-aggregated.zone
     for IP in $(cat $IPSET_LISTS_DIR/$country.lst); do
       ipset $ADD BlockedCountries $IP
       [ $? -eq 0 ] && entryCount=$((entryCount+1))
     done
-    logger -t Firewall "$0: Added country [$country] to BlockedCountries list ($entryCount entries)"
-  done
-fi
+    logger -t Firewall "$0: ${Action}ed country [$country] to BlockedCountries list ($entryCount entries)"
+  fi
+done
 iptables-save | grep -q BlockedCountries || iptables -I INPUT -m set $MATCH_SET BlockedCountries src -j $IPTABLES_RULE_TARGET
+unset Action
+
 if [ $(nvram get ipv6_fw_enable) -eq 1 -a "$(nvram get ipv6_service)" != "disabled" ]; then
+  for country in ${BLOCKED_COUNTRY_LIST}; do
+    if [ -n "$NETHASH6" -o $USE_IP6TABLES_IF_IPSETV6_UNAVAILABLE = "enabled" ] && [ ! -e "$IPSET_LISTS_DIR/${country}6.lst" -o -n "$(find $IPSET_LISTS_DIR/${country}6.lst -mtime +$BLOCKLISTS_SAVE_DAYS -print 2>/dev/null)" ]; then
+      wget -q -O $IPSET_LISTS_DIR/${country}6.lst "http://www.ipdeny.com/ipv6/ipaddresses/aggregated/${country}-aggregated.zone"
+      touch $IPSET_LISTS_DIR/${country}6.lst
+      Action="Reload"
+    fi
+  done
+  [ "${Action}" == "Reload" ] && $(ipset -q $SWAP BlockedCountries6 BlockedCountries6) && ipset $FLUSH BlockedCountries6
   if $(ipset $SWAP BlockedCountries6 BlockedCountries6 2>&1 | grep -q "$SETNOTFOUND"); then
-    [  -n "$NETHASH6" ] && ipset $CREATE BlockedCountries6 $NETHASH6
-    for country in ${BLOCKED_COUNTRY_LIST}; do
-      [ -e "/tmp/ipv6_country_blocks_loaded" ] && logger -t Firewall "$0: Country block rules has already been loaded into ip6tables... Skipping." && break
-      entryCount=0
-      [  -n "$NETHASH6" -o $USE_IP6TABLES_IF_IPSETV6_UNAVAILABLE = "enabled" ] && [ ! -e "$IPSET_LISTS_DIR/${country}6.lst" -o -n "$(find $IPSET_LISTS_DIR/${country}6.lst -mtime +$BLOCKLISTS_SAVE_DAYS -print 2>/dev/null)" ] && wget -q -O $IPSET_LISTS_DIR/${country}6.lst http://www.ipdeny.com/ipv6/ipaddresses/aggregated/${country}-aggregated.zone
+    [ -n "$NETHASH6" ] && ipset $CREATE BlockedCountries6 $NETHASH6 && Action="Add"
+  fi
+  for country in ${BLOCKED_COUNTRY_LIST}; do
+    [ -e "/tmp/ipv6_country_blocks_loaded" ] && logger -t Firewall "$0: Country block rules has already been loaded into ip6tables... Skipping." && break
+    entryCount=0
+    if [ -n "${Action}" ]; then
       for IP6 in $(cat $IPSET_LISTS_DIR/${country}6.lst); do
         if [ -n "$NETHASH6" ]; then
           ipset $ADD BlockedCountries6 $IP6
@@ -93,12 +123,12 @@ if [ $(nvram get ipv6_fw_enable) -eq 1 -a "$(nvram get ipv6_service)" != "disabl
         [ $? -eq 0 ] && entryCount=$((entryCount+1))
       done
       if [ -n "$NETHASH6" ]; then
-        logger -t Firewall "$0: Added country [$country] to BlockedCountries6 list ($entryCount entries)"
+        logger -t Firewall "$0: ${Action}ed country [$country] to BlockedCountries6 list ($entryCount entries)"
       elif [ $USE_IP6TABLES_IF_IPSETV6_UNAVAILABLE = "enabled" ]; then
         logger -t Firewall "$0: Added country [$country] to ip6tables rules ($entryCount entries)"
       fi
-    done
-  fi
+    fi
+  done
   if [ -n "$NETHASH6" ]; then
     ip6tables -L | grep -q BlockedCountries6 || ip6tables -I INPUT -m set $MATCH_SET BlockedCountries6 src -j $IPTABLES_RULE_TARGET
   elif [ $USE_IP6TABLES_IF_IPSETV6_UNAVAILABLE = "enabled" -a ! -e "/tmp/ipv6_country_blocks_loaded" ]; then
@@ -139,16 +169,18 @@ if [ -e $IPSET_LISTS_DIR/custom.lst ]; then
   iptables-save | grep -q CustomBlock || iptables -I INPUT -m set $MATCH_SET CustomBlock src -j $IPTABLES_RULE_TARGET
 fi
 
-# Allow traffic from AcceptList [IPv4 only] [$IPSET_LISTS_DIR/whitelist.lst can contain a combination of IPv4 IP or IPv4 netmask]
+# Allow traffic from AllowList [IPv4 only] [$IPSET_LISTS_DIR/whitelist.lst can contain a combination of IPv4 IP or IPv4 netmask] (previous)
+# Allow traffic from AllowList [IPv4 only] [$IPSET_LISTS_DIR/whitelist.lst can contain IPv4 IPs] (current)
 if [ -e $IPSET_LISTS_DIR/whitelist.lst ]; then
-  if $(ipset $SWAP AcceptList AcceptList 2>&1 | grep -q "$SETNOTFOUND"); then
-    ipset $CREATE AcceptList $NETHASH
+  if $(ipset $SWAP AllowList AllowList 2>&1 | grep -q "$SETNOTFOUND"); then
+    ipset $CREATE AllowList $IPHASH #(was $NETHASH)
     [ $? -eq 0 ] && entryCount=0
     for IP in $(cat $IPSET_LISTS_DIR/whitelist.lst); do
-      [ "${IP##*/}" == "$IP" ] && ipset $ADD AcceptList $IP/31 || ipset $ADD AcceptList $IP
+      #[ "${IP##*/}" == "$IP" ] && ipset $ADD AllowList $IP/31 || ipset $ADD AllowList $IP
+      ipset $ADD AllowList $IP
       [ $? -eq 0 ] && entryCount=$((entryCount+1))
     done
-    logger -t Firewall "$0: Added AcceptList ($entryCount entries)"
+    logger -t Firewall "$0: Added AllowList ($entryCount entries)"
   fi
-  iptables-save | grep -q AcceptList || iptables -I INPUT -m set $MATCH_SET AcceptList src -j ACCEPT
+  iptables-save | grep -q AllowList || iptables -I INPUT -m set $MATCH_SET AllowList src -j ACCEPT
 fi
